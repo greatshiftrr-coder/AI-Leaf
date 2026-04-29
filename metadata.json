@@ -1,0 +1,6 @@
+{
+  "name": "AI LEAF",
+  "description": "AI LEAF - An elegant AI chat interface with a pill animation.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": []
+}
