@@ -16,6 +16,7 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   modelInfo?: string;
+  imageUrl?: string;
 }
 
 interface HistorySession {
@@ -33,10 +34,60 @@ export default function App() {
   const [showKey, setShowKey] = useState(false);
   const [isPillAnimDone, setIsPillAnimDone] = useState(false);
   const [prompt, setPrompt] = useState('');
+  const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const recognitionRef = useRef<any>(null);
   const attachmentMenuRef = useRef<HTMLDivElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isCameraOpen) {
+      setCameraError(null);
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        .then(stream => {
+          streamRef.current = stream;
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+          }
+        })
+        .catch(err => {
+          console.error("Error accessing camera", err);
+          setCameraError(err.message || "Permission denied");
+        });
+    } else {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+    }
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [isCameraOpen]);
+
+  const capturePhoto = () => {
+    if (videoRef.current) {
+      const canvas = document.createElement('canvas');
+      canvas.width = videoRef.current.videoWidth;
+      canvas.height = videoRef.current.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(videoRef.current, 0, 0);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        setAttachedImage(dataUrl);
+        setIsCameraOpen(false);
+      }
+    }
+  };
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -69,7 +120,11 @@ export default function App() {
   const [apiKeys, setApiKeys] = useState<Record<string, string>>(() => {
     try {
       const saved = localStorage.getItem('ai_api_keys');
-      return saved ? JSON.parse(saved) : { ChatGPT: '', Gemini: '', Claude: '', OpenRouter: '' };
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return { ChatGPT: '', Gemini: '', Claude: '', OpenRouter: '', ...parsed };
+      }
+      return { ChatGPT: '', Gemini: '', Claude: '', OpenRouter: '' };
     } catch {
       return { ChatGPT: '', Gemini: '', Claude: '', OpenRouter: '' };
     }
@@ -96,7 +151,7 @@ export default function App() {
   };
 
   const handleSend = () => {
-    if (!prompt.trim() || isSubmitting) return;
+    if ((!prompt.trim() && !attachedImage) || isSubmitting) return;
 
     if (isRecording && recognitionRef.current) {
       recognitionRef.current.stop();
@@ -104,18 +159,21 @@ export default function App() {
     }
 
     const currentPrompt = prompt.trim();
-    const newUserMsg: Message = { id: Date.now().toString(), role: 'user', content: currentPrompt };
+    const newUserMsg: Message = { id: Date.now().toString(), role: 'user', content: currentPrompt, imageUrl: attachedImage || undefined };
     const updatedMessages = [...messages, newUserMsg];
     
     setMessages(updatedMessages);
     setPrompt('');
+    setAttachedImage(null);
     setIsSubmitting(true);
 
-    setTimeout(() => {
+    const apiKey = apiKeys[selectedModel];
+
+    const finalizeResponse = (assistantContent: string) => {
       const newAssistantMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: `This is a simulated ${selectedModel} response (${selectedVersion}). To connect real AI, integrate your API key with the respective SDK.`,
+        content: assistantContent,
         modelInfo: `${selectedModel} - ${selectedVersion}`
       };
       
@@ -144,7 +202,73 @@ export default function App() {
         }
         return newHistory;
       });
-    }, 1200);
+    };
+
+    if (!apiKey) {
+      setTimeout(() => {
+        finalizeResponse(`This is a simulated ${selectedModel} response (${selectedVersion}). To connect real AI, please enter your API key in the settings.`);
+      }, 1200);
+      return;
+    }
+
+    // Actual API Integration
+    const fetchAI = async () => {
+      try {
+        let endpoint = '';
+        let headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        };
+        let body: any = {};
+
+        // Convert message history to API format
+        const apiMessages = updatedMessages.map(m => ({
+          role: m.role,
+          content: m.content
+        }));
+
+        if (selectedModel === 'OpenRouter') {
+          endpoint = 'https://openrouter.ai/api/v1/chat/completions';
+          headers['HTTP-Referer'] = window.location.href;
+          headers['X-Title'] = 'AI Leaf';
+          body = {
+            model: selectedVersion,
+            messages: apiMessages
+          };
+        } else {
+          // If we want to support other providers later, we can add them here.
+          // For now, if it's not OpenRouter, just show simulated.
+          setTimeout(() => {
+            finalizeResponse(`Real integration for ${selectedModel} is not fully set up yet. OpenRouter is currently supported.`);
+          }, 1200);
+          return;
+        }
+
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body)
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("API Error:", errorText);
+          finalizeResponse(`Error: Failed to fetch response from ${selectedModel}. Please check your API key and try again.`);
+          return;
+        }
+
+        const data = await response.json();
+        
+        if (selectedModel === 'OpenRouter') {
+          finalizeResponse(data.choices[0].message.content);
+        }
+      } catch (err) {
+        console.error("API call failed:", err);
+        finalizeResponse(`Error: Could not connect to ${selectedModel}. Please check your internet connection.`);
+      }
+    };
+
+    fetchAI();
   };
 
   const loadSession = (session: HistorySession) => {
@@ -219,6 +343,32 @@ export default function App() {
     }
   };
 
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setAttachedImage(e.target?.result as string);
+          setIsAttachmentMenuOpen(false);
+        };
+        reader.readAsDataURL(file);
+      } else {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const text = e.target?.result as string;
+          setPrompt(prev => prev + (prev ? '\n\n' : '') + `[File: ${file.name}]\n${text}`);
+          setIsAttachmentMenuOpen(false);
+        };
+        reader.readAsText(file);
+      }
+    }
+    // reset inputs
+    if (imageInputRef.current) imageInputRef.current.value = '';
+    if (cameraInputRef.current) cameraInputRef.current.value = '';
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   return (
     <div className="relative w-full h-screen bg-slate-900 overflow-hidden font-sans">
       <div 
@@ -287,14 +437,31 @@ export default function App() {
                   <button
                     key={model}
                     onClick={() => handleModelSelect(model)}
-                    className={`w-full flex items-center justify-between p-3 rounded-xl transition-all ${
+                    className={`relative w-full flex items-center justify-between p-3 rounded-xl transition-colors ${
                       selectedModel === model 
-                        ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' 
-                        : 'text-slate-300 hover:bg-slate-700/50 border border-transparent'
+                        ? 'text-blue-400' 
+                        : 'text-slate-300 hover:bg-slate-700/50'
                     }`}
                   >
-                    <span className="font-medium">{model}</span>
-                    {selectedModel === model && <Check className="w-4 h-4" />}
+                    {selectedModel === model && (
+                      <motion.div
+                        layoutId="modelIndicator"
+                        className="absolute inset-0 bg-blue-500/20 border border-blue-500/30 rounded-xl"
+                        initial={false}
+                        transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                      />
+                    )}
+                    <span className="relative z-10 font-medium">{model}</span>
+                    {selectedModel === model && (
+                      <motion.div
+                        initial={{ scale: 0, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{ type: "spring", bounce: 0.3, delay: 0.1 }}
+                        className="relative z-10"
+                      >
+                        <Check className="w-4 h-4" />
+                      </motion.div>
+                    )}
                   </button>
                 ))}
               </div>
@@ -442,7 +609,10 @@ export default function App() {
                 </div>
                 <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                   <div className={`px-4 py-3 rounded-2xl shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 border border-slate-700 text-slate-200 rounded-tl-none'}`}>
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                    {msg.imageUrl && (
+                      <img src={msg.imageUrl} alt="Attached" className="max-w-sm rounded-xl mb-3 object-contain max-h-64" />
+                    )}
+                    {msg.content && <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>}
                   </div>
                   {msg.modelInfo && (
                     <span className="text-[10px] text-slate-500 mt-1 font-medium px-1">
@@ -542,21 +712,28 @@ export default function App() {
                       >
                         <button 
                           className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white transition-colors text-left" 
-                          onClick={() => setIsAttachmentMenuOpen(false)}
+                          onClick={() => {
+                            imageInputRef.current?.click();
+                          }}
                         >
                           <ImageIcon className="w-4 h-4" />
                           Image
                         </button>
                         <button 
                           className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white transition-colors text-left border-t border-slate-700/50" 
-                          onClick={() => setIsAttachmentMenuOpen(false)}
+                          onClick={() => {
+                            fileInputRef.current?.click();
+                          }}
                         >
                           <File className="w-4 h-4" />
                           Files
                         </button>
                         <button 
                           className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white transition-colors text-left border-t border-slate-700/50" 
-                          onClick={() => setIsAttachmentMenuOpen(false)}
+                          onClick={() => {
+                            setIsCameraOpen(true);
+                            setIsAttachmentMenuOpen(false);
+                          }}
                         >
                           <Camera className="w-4 h-4" />
                           Camera
@@ -564,7 +741,23 @@ export default function App() {
                       </motion.div>
                   )}
                 </AnimatePresence>
+
+                <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} className="hidden" onChange={handleImageSelect} />
+                <input type="file" accept="image/*" ref={imageInputRef} className="hidden" onChange={handleImageSelect} />
+                <input type="file" ref={fileInputRef} className="hidden" onChange={handleImageSelect} />
               </div>
+
+              {attachedImage && (
+                <div className="absolute bottom-[110%] left-0 z-30 h-16 w-16 min-w-16 rounded-xl overflow-hidden border-2 border-white shadow-xl bg-slate-100 flex items-center justify-center">
+                  <img src={attachedImage} alt="Preview" className="w-full h-full object-cover" />
+                  <button 
+                    onClick={() => setAttachedImage(null)}
+                    className="absolute top-1 right-1 bg-slate-900/60 p-0.5 rounded-full text-white hover:bg-slate-900/80 transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
 
               <input
                 type="text"
@@ -601,7 +794,7 @@ export default function App() {
                 </motion.button>
                 <motion.button
                   onClick={handleSend}
-                  disabled={isSubmitting || !prompt.trim()}
+                  disabled={isSubmitting || (!prompt.trim() && !attachedImage)}
                   initial={{ opacity: 0, scale: 0.5, rotate: -45 }}
                   animate={{ opacity: 1, scale: 1, rotate: 0 }}
                   transition={{
@@ -619,6 +812,69 @@ export default function App() {
           )}
         </AnimatePresence>
       </motion.div>
+
+      <AnimatePresence>
+        {isCameraOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 bg-black flex flex-col items-center justify-center p-4"
+          >
+            <div className="relative w-full max-w-2xl bg-slate-900 rounded-3xl overflow-hidden shadow-2xl border border-slate-800">
+              <div className="flex justify-between items-center p-4 border-b border-slate-800">
+                <h3 className="text-white font-medium flex items-center gap-2">
+                  <Camera className="w-5 h-5 text-blue-400" />
+                  Take a Photo
+                </h3>
+                <button 
+                  onClick={() => setIsCameraOpen(false)}
+                  className="text-slate-400 hover:text-white transition-colors"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden">
+                {cameraError ? (
+                  <div className="text-center p-6 flex flex-col items-center justify-center h-full">
+                    <p className="text-red-400 mb-6 max-w-md">
+                      {cameraError === "Permission denied" || cameraError.includes("denied") || cameraError.includes("NotAllowed") 
+                        ? "Camera access was denied. Please allow camera permissions in your browser or use your device's native camera." 
+                        : `Error: ${cameraError}`}
+                    </p>
+                    <button 
+                      onClick={() => {
+                        setIsCameraOpen(false);
+                        cameraInputRef.current?.click();
+                      }}
+                      className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition font-medium"
+                    >
+                      Use Native Camera App
+                    </button>
+                  </div>
+                ) : (
+                  <video 
+                    ref={videoRef} 
+                    autoPlay 
+                    playsInline 
+                    className="w-full h-full object-cover"
+                  />
+                )}
+              </div>
+              {!cameraError && (
+                <div className="p-6 flex justify-center bg-slate-900">
+                  <button
+                    onClick={capturePhoto}
+                    className="w-16 h-16 rounded-full border-4 border-slate-400 flex items-center justify-center hover:border-slate-300 transition-colors group cursor-pointer"
+                  >
+                    <div className="w-12 h-12 bg-white rounded-full scale-90 group-hover:scale-100 transition-transform" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
