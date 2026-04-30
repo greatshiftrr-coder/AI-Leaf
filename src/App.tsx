@@ -5,7 +5,8 @@ import { useState, useEffect, useRef } from 'react';
 const AI_MODELS = {
   ChatGPT: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
   Gemini: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-pro-exp', 'gemini-1.5-pro', 'gemini-1.5-flash'],
-  Claude: ['claude-3.7-sonnet', 'claude-3.5-sonnet', 'claude-3-opus', 'claude-3-haiku']
+  Claude: ['claude-3.7-sonnet', 'claude-3.5-sonnet', 'claude-3-opus', 'claude-3-haiku'],
+  OpenRouter: ['auto:-any-', 'anthropic/claude-3.7-sonnet', 'google/gemini-2.5-pro', 'meta-llama/llama-3.3-70b-instruct', 'deepseek/deepseek-r1']
 };
 
 type ModelName = keyof typeof AI_MODELS;
@@ -68,9 +69,9 @@ export default function App() {
   const [apiKeys, setApiKeys] = useState<Record<string, string>>(() => {
     try {
       const saved = localStorage.getItem('ai_api_keys');
-      return saved ? JSON.parse(saved) : { ChatGPT: '', Gemini: '', Claude: '' };
+      return saved ? JSON.parse(saved) : { ChatGPT: '', Gemini: '', Claude: '', OpenRouter: '' };
     } catch {
-      return { ChatGPT: '', Gemini: '', Claude: '' };
+      return { ChatGPT: '', Gemini: '', Claude: '', OpenRouter: '' };
     }
   });
 
@@ -233,6 +234,19 @@ export default function App() {
       >
         <Settings className={`w-8 h-8 transition-transform duration-300 ${isSettingsOpen ? 'rotate-90' : ''}`} />
       </div>
+
+      {!isSettingsOpen && (
+        <div className="absolute top-8 left-[3.5rem] z-10 pointer-events-none flex items-start text-cyan-400 drop-shadow-md" style={{ animation: 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite' }}>
+          <svg width="60" height="60" viewBox="0 0 100 100" className="mr-2 overflow-visible" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" style={{ filter: 'drop-shadow(0px 2px 4px rgba(0,0,0,0.6))' }}>
+            <path d="M 90,70 Q 40,80 20,20" />
+            <path d="M 40,22 L 20,20 L 22,40" />
+            <circle cx="90" cy="70" r="3" fill="currentColor" stroke="none" />
+          </svg>
+          <span className="text-sm font-semibold tracking-wide italic whitespace-nowrap mt-8" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>
+            Add your API key here
+          </span>
+        </div>
+      )}
       
       <button 
         className="absolute top-6 right-6 z-20 flex items-center gap-2 bg-slate-800/60 hover:bg-slate-700/80 backdrop-blur-md border border-slate-700/50 text-slate-300 hover:text-white px-4 py-2 rounded-full transition-all cursor-pointer group shadow-lg"
