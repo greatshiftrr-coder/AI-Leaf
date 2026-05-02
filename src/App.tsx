@@ -2,9 +2,11 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Settings, Check, X, Key, Eye, EyeOff, Send, ChevronDown, History, MessageSquare, Plus, Bot, User, Clock, Leaf, Mic, Hexagon, Paperclip, Image as ImageIcon, File, Camera } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 
+import { GoogleGenAI } from "@google/genai";
+
 const AI_MODELS = {
   ChatGPT: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
-  Gemini: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-pro-exp', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+  Gemini: ['gemini-3.1-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-flash-image', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-1.5-pro'],
   Claude: ['claude-3.7-sonnet', 'claude-3.5-sonnet', 'claude-3-opus', 'claude-3-haiku'],
   OpenRouter: ['auto:-any-', 'anthropic/claude-3.7-sonnet', 'google/gemini-2.5-pro', 'meta-llama/llama-3.3-70b-instruct', 'deepseek/deepseek-r1']
 };
@@ -29,6 +31,7 @@ interface HistorySession {
 export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [theme, setTheme] = useState<'dark' | 'light' | 'cherry-blossom' | 'forest'>('dark');
   const [selectedModel, setSelectedModel] = useState<ModelName>('Gemini');
   const [selectedVersion, setSelectedVersion] = useState(AI_MODELS['Gemini'][0]);
   const [showKey, setShowKey] = useState(false);
@@ -167,7 +170,12 @@ export default function App() {
     setAttachedImage(null);
     setIsSubmitting(true);
 
-    const apiKey = apiKeys[selectedModel];
+    let apiKey = apiKeys[selectedModel];
+    if (selectedModel === 'Gemini' && (!apiKey || apiKey.trim() === '')) {
+      apiKey = process.env.GEMINI_API_KEY || '';
+    }
+
+    const isImageRequest = selectedModel === 'Gemini' && selectedVersion === 'gemini-2.5-flash-image';
 
     const finalizeResponse = (assistantContent: string) => {
       const newAssistantMsg: Message = {
@@ -214,6 +222,47 @@ export default function App() {
     // Actual API Integration
     const fetchAI = async () => {
       try {
+        if (selectedModel === 'Gemini') {
+          const ai = new GoogleGenAI({ apiKey });
+          if (isImageRequest) {
+            let reqContents: any = { parts: [{ text: currentPrompt }] };
+            if (attachedImage) {
+              const base64Data = attachedImage.split(',')[1];
+              reqContents.parts.unshift({
+                inlineData: {
+                  data: base64Data,
+                  mimeType: attachedImage.split(';')[0].split(':')[1]
+                }
+              });
+            }
+            
+            const response = await ai.models.generateContent({
+              model: 'gemini-2.5-flash-image',
+              contents: reqContents
+            });
+            
+            let imgHtml = "Could not generate image.";
+            for (const part of response.candidates?.[0]?.content?.parts || []) {
+              if (part.inlineData) {
+                imgHtml = `<img src="data:${part.inlineData.mimeType || 'image/jpeg'};base64,${part.inlineData.data}" alt="generated image" class="max-w-full rounded-xl" />`;
+                break;
+              }
+            }
+            finalizeResponse(imgHtml);
+          } else {
+            const chat = ai.chats.create({
+              model: selectedVersion,
+              history: messages.map(m => ({
+                role: m.role === 'user' ? 'user' : 'model',
+                parts: [{ text: m.content || '(empty)' }]
+              }))
+            });
+            const response = await chat.sendMessage({ message: currentPrompt });
+            finalizeResponse(response.text || '');
+          }
+          return;
+        }
+
         let endpoint = '';
         let headers: Record<string, string> = {
           'Content-Type': 'application/json',
@@ -370,12 +419,17 @@ export default function App() {
   };
 
   return (
-    <div className="relative w-full h-screen bg-slate-900 overflow-hidden font-sans">
+    <div className="relative w-full h-screen bg-slate-900 overflow-hidden font-sans" data-theme={theme}>
       <div 
         className="absolute top-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 select-none"
       >
         <Leaf className="w-6 h-6 text-emerald-500" />
-        <span className="text-white font-bold tracking-widest text-lg" style={{ fontFamily: 'Arial' }}>AI LEAF</span>
+        <span 
+          className="font-bold tracking-widest text-lg text-transparent bg-clip-text bg-gradient-to-b from-slate-100 via-slate-400 to-slate-300 drop-shadow-sm" 
+          style={{ fontFamily: 'Arial' }}
+        >
+          AI LEAF
+        </span>
       </div>
 
       <div 
@@ -383,6 +437,22 @@ export default function App() {
         onClick={() => setIsSettingsOpen(!isSettingsOpen)}
       >
         <Settings className={`w-8 h-8 transition-transform duration-300 ${isSettingsOpen ? 'rotate-90' : ''}`} />
+      </div>
+
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex bg-[var(--overlay-bg)] backdrop-blur-md rounded-full shadow-lg p-1 gap-1">
+        {(['dark', 'light', 'cherry-blossom', 'forest'] as const).map(t => (
+          <button
+            key={t}
+            onClick={() => setTheme(t)}
+            className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${theme === t ? 'bg-[var(--overlay-bg)] text-[var(--color-white)]' : 'text-slate-400 hover:text-[var(--color-white)]'}`}
+          >
+            {t.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+          </button>
+        ))}
+      </div>
+
+      <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 z-20 text-[10px] text-[var(--color-slate-400)] pointer-events-none font-medium">
+        AI can make mistakes.
       </div>
 
       {!isSettingsOpen && (
@@ -406,6 +476,62 @@ export default function App() {
         <span className="text-sm font-medium">History</span>
       </button>
 
+      {theme === 'forest' && (
+        <div className="absolute bottom-0 left-0 w-full overflow-hidden z-0 pointer-events-none flex items-end justify-around text-[var(--color-slate-700)] opacity-80" aria-hidden="true">
+          <svg width="120" height="204" viewBox="0 0 100 170" fill="currentColor"><path d="M50 20 L90 80 H70 L100 130 H60 V170 H40 V130 H0 L30 80 H10 Z" /></svg>
+          <svg width="180" height="306" viewBox="0 0 100 170" fill="currentColor" className="mb-[-20px]"><path d="M50 10 L85 85 H70 L100 140 H60 V170 H40 V140 H0 L30 85 H15 Z" /></svg>
+          <svg width="240" height="408" viewBox="0 0 100 170" fill="currentColor" className="mb-[-40px]"><path d="M50 0 L95 75 H75 L100 150 H60 V170 H40 V150 H0 L25 75 H5 Z" /></svg>
+          <svg width="150" height="255" viewBox="0 0 100 170" fill="currentColor" className="mb-[-10px]"><path d="M50 20 L90 80 H70 L100 130 H60 V170 H40 V130 H0 L30 80 H10 Z" /></svg>
+          <svg width="200" height="340" viewBox="0 0 100 170" fill="currentColor" className="mb-[-30px]"><path d="M50 10 L85 85 H70 L100 140 H60 V170 H40 V140 H0 L30 85 H15 Z" /></svg>
+          <svg width="110" height="187" viewBox="0 0 100 170" fill="currentColor"><path d="M50 20 L90 80 H70 L100 130 H60 V170 H40 V130 H0 L30 80 H10 Z" /></svg>
+        </div>
+      )}
+
+      {theme === 'cherry-blossom' && (
+        <div className="absolute bottom-0 left-0 w-full overflow-hidden z-0 pointer-events-none flex items-end justify-around text-[var(--color-slate-700)] opacity-80" aria-hidden="true">
+          <svg width="140" height="204" viewBox="0 0 100 170" fill="currentColor">
+            <path d="M44 170 L48 80 L52 80 L56 170 Z" fill="currentColor" opacity="0.8" />
+            <circle cx="50" cy="50" r="35" opacity="0.9" />
+            <circle cx="25" cy="70" r="25" opacity="0.9" />
+            <circle cx="75" cy="70" r="25" opacity="0.9" />
+            <circle cx="30" cy="35" r="20" opacity="0.9" />
+            <circle cx="70" cy="35" r="20" opacity="0.9" />
+          </svg>
+          <svg width="200" height="306" viewBox="0 0 100 170" fill="currentColor" className="mb-[-20px]">
+            <path d="M44 170 L48 80 L52 80 L56 170 Z" fill="currentColor" opacity="0.8" />
+            <circle cx="50" cy="50" r="35" opacity="0.9" />
+            <circle cx="20" cy="75" r="25" opacity="0.9" />
+            <circle cx="80" cy="75" r="25" opacity="0.9" />
+            <circle cx="30" cy="30" r="25" opacity="0.9" />
+            <circle cx="70" cy="30" r="25" opacity="0.9" />
+          </svg>
+          <svg width="260" height="408" viewBox="0 0 100 170" fill="currentColor" className="mb-[-40px]">
+             <path d="M44 170 L48 80 L52 80 L56 170 Z" fill="currentColor" opacity="0.8" />
+            <circle cx="50" cy="50" r="35" opacity="0.9" />
+            <circle cx="25" cy="70" r="25" opacity="0.9" />
+            <circle cx="75" cy="70" r="25" opacity="0.9" />
+            <circle cx="30" cy="35" r="20" opacity="0.9" />
+            <circle cx="70" cy="35" r="20" opacity="0.9" />
+          </svg>
+          <svg width="170" height="255" viewBox="0 0 100 170" fill="currentColor" className="mb-[-10px]">
+             <path d="M44 170 L48 80 L52 80 L56 170 Z" fill="currentColor" opacity="0.8" />
+            <circle cx="50" cy="50" r="35" opacity="0.9" />
+            <circle cx="25" cy="70" r="25" opacity="0.9" />
+            <circle cx="75" cy="70" r="25" opacity="0.9" />
+            <circle cx="30" cy="35" r="20" opacity="0.9" />
+            <circle cx="70" cy="35" r="20" opacity="0.9" />
+          </svg>
+          <svg width="220" height="340" viewBox="0 0 100 170" fill="currentColor" className="mb-[-30px]">
+            <path d="M44 170 L48 80 L52 80 L56 170 Z" fill="currentColor" opacity="0.8" />
+            <circle cx="50" cy="50" r="35" opacity="0.9" />
+            <circle cx="20" cy="75" r="25" opacity="0.9" />
+            <circle cx="80" cy="75" r="25" opacity="0.9" />
+            <circle cx="30" cy="30" r="25" opacity="0.9" />
+            <circle cx="70" cy="30" r="25" opacity="0.9" />
+          </svg>
+        </div>
+      )}
+
       <AnimatePresence>
         {isSettingsOpen && (
           <>
@@ -413,7 +539,7 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/40 z-30 backdrop-blur-sm"
+              className="absolute inset-0 bg-[var(--overlay-bg)] z-30 backdrop-blur-sm"
               onClick={() => setIsSettingsOpen(false)}
             />
             <motion.div
@@ -532,7 +658,7 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/40 z-30 backdrop-blur-sm"
+              className="absolute inset-0 bg-[var(--overlay-bg)] z-30 backdrop-blur-sm"
               onClick={() => setIsSidebarOpen(false)}
             />
             <motion.div
@@ -557,7 +683,7 @@ export default function App() {
               <div className="p-4">
                 <button 
                   onClick={startNewChat}
-                  className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg transition-colors font-medium text-sm"
+                  className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-[#ffffff] py-2.5 rounded-lg transition-colors font-medium text-sm"
                 >
                   <Plus className="w-4 h-4" />
                   New Chat
@@ -605,10 +731,10 @@ export default function App() {
             >
               <div className={`flex gap-3 max-w-[85%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-1 ${msg.role === 'user' ? 'bg-blue-600' : 'bg-slate-700'}`}>
-                  {msg.role === 'user' ? <User className="w-5 h-5 text-white" /> : <Bot className="w-5 h-5 text-white" />}
+                  {msg.role === 'user' ? <User className="w-5 h-5 text-[#ffffff]" /> : <Bot className="w-5 h-5 text-white" />}
                 </div>
                 <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                  <div className={`px-4 py-3 rounded-2xl shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 border border-slate-700 text-slate-200 rounded-tl-none'}`}>
+                  <div className={`px-4 py-3 rounded-2xl shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-[#ffffff] rounded-tr-none' : 'bg-slate-800 border border-slate-700 text-slate-200 rounded-tl-none'}`}>
                     {msg.imageUrl && (
                       <img src={msg.imageUrl} alt="Attached" className="max-w-sm rounded-xl mb-3 object-contain max-h-64" />
                     )}
@@ -761,7 +887,7 @@ export default function App() {
 
               <input
                 type="text"
-                placeholder={isRecording ? "Listening..." : `Ask ${selectedModel}...`}
+                placeholder={isRecording ? "Listening..." : (selectedModel === 'Gemini' && selectedVersion === 'gemini-2.5-flash-image' ? "Describe the image to generate..." : `Ask ${selectedModel}...`)}
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={(e) => {
@@ -786,7 +912,7 @@ export default function App() {
                   }}
                   className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                     isRecording 
-                      ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' 
+                      ? 'bg-red-500 hover:bg-red-600 text-[#ffffff] animate-pulse' 
                       : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
                   }`}
                 >
@@ -819,7 +945,7 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 z-50 bg-black flex flex-col items-center justify-center p-4"
+            className="absolute inset-0 z-50 bg-[var(--overlay-bg)] flex flex-col items-center justify-center p-4"
           >
             <div className="relative w-full max-w-2xl bg-slate-900 rounded-3xl overflow-hidden shadow-2xl border border-slate-800">
               <div className="flex justify-between items-center p-4 border-b border-slate-800">
@@ -847,7 +973,7 @@ export default function App() {
                         setIsCameraOpen(false);
                         cameraInputRef.current?.click();
                       }}
-                      className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition font-medium"
+                      className="px-6 py-3 bg-blue-600 text-[#ffffff] rounded-xl hover:bg-blue-700 transition font-medium"
                     >
                       Use Native Camera App
                     </button>

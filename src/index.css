@@ -1,1 +1,64 @@
 @import "tailwindcss";
+
+@layer base {
+  :root, [data-theme="dark"] {
+    --color-slate-900: #0f172a;
+    --color-slate-800: #1e293b;
+    --color-slate-700: #334155;
+    --color-slate-600: #475569;
+    --color-slate-500: #64748b;
+    --color-slate-400: #94a3b8;
+    --color-slate-300: #cbd5e1;
+    --color-slate-200: #e2e8f0;
+    --color-slate-100: #f1f5f9;
+    --color-slate-50: #f8fafc;
+    --color-white: #ffffff;
+    --overlay-bg: rgba(0, 0, 0, 0.4);
+  }
+
+  [data-theme="light"] {
+    --color-slate-900: #f8fafc; /* root bg */
+    --color-slate-800: #ffffff; /* panel bg */
+    --color-slate-700: #f1f5f9; /* hover panel bg */
+    --color-slate-600: #e2e8f0; /* borders */
+    --color-slate-500: #94a3b8;
+    --color-slate-400: #64748b;
+    --color-slate-300: #475569; /* text secondary */
+    --color-slate-200: #0f172a; /* text primary for some elements */
+    --color-slate-100: #0f172a;
+    --color-slate-50: #020617;
+    --color-white: #0f172a; /* becomes dark */
+    --overlay-bg: rgba(0, 0, 0, 0.15);
+  }
+
+  [data-theme="cherry-blossom"] {
+    --color-slate-900: #fdf2f8; /* root bg: pink-50 */
+    --color-slate-800: #ffffff; /* panel bg: white */
+    --color-slate-700: #fce7f3; /* hover bg: pink-100 */
+    --color-slate-600: #fbcfe8; /* border: pink-200 */
+    --color-slate-500: #f472b6; /* icon text: pink-400 */
+    --color-slate-400: #db2777; /* text muted: pink-600 */
+    --color-slate-300: #9d174d; /* text secondary: pink-900 */
+    --color-slate-200: #831843; /* text main: pink-950 */
+    --color-slate-100: #831843;
+    --color-slate-50: #4c0519;
+    --color-white: #831843; /* becomes dark red/pink */
+    --overlay-bg: rgba(131, 24, 67, 0.15); /* pink overlay */
+  }
+
+  [data-theme="forest"] {
+    --color-slate-900: #0f1f14; /* root bg: very dark green */
+    --color-slate-800: #152c1c; /* panel bg */
+    --color-slate-700: #1c3b26; /* hover bg */
+    --color-slate-600: #264a30; /* borders */
+    --color-slate-500: #336140; /* icons/text muted */
+    --color-slate-400: #49855b; /* text secondary */
+    --color-slate-300: #6ab082; /* text primary for some elements */
+    --color-slate-200: #93cfa7; /* lighter */
+    --color-slate-100: #c1e8d0;
+    --color-slate-50: #e3f6ea;
+    --color-white: #ffffff; /* white text */
+    --overlay-bg: rgba(10, 20, 13, 0.5); /* dark overlay */
+  }
+}
+
