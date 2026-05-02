@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { Settings, Check, X, Key, Eye, EyeOff, Send, ChevronDown, History, MessageSquare, Plus, Bot, User, Clock, Leaf, Mic, Hexagon, Paperclip, Image as ImageIcon, File, Camera } from 'lucide-react';
+import { Settings, Check, X, Key, Eye, EyeOff, Send, ChevronDown, History, MessageSquare, Plus, Bot, User, Clock, Leaf, Mic, Hexagon, Paperclip, Image as ImageIcon, File, Camera, Bell } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 
 import { GoogleGenAI } from "@google/genai";
@@ -30,6 +30,7 @@ interface HistorySession {
 
 export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isWhatsNewOpen, setIsWhatsNewOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light' | 'cherry-blossom' | 'forest'>('dark');
   const [selectedModel, setSelectedModel] = useState<ModelName>('Gemini');
@@ -42,6 +43,61 @@ export default function App() {
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+
+  const [typingIndex, setTypingIndex] = useState(0);
+  const [typingText, setTypingText] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  useEffect(() => {
+    if (isRecording || (selectedModel === 'Gemini' && selectedVersion === 'gemini-2.5-flash-image')) {
+      return;
+    }
+
+    const PHRASES = [
+      `Ask ${selectedModel}...`,
+      "What do you want to know?",
+      "How to write a binary search in Python?",
+      "Translate hello to French...",
+      "What is quantum computing?",
+      "Tell me a joke..."
+    ];
+
+    const currentPhrase = PHRASES[typingIndex % PHRASES.length];
+    let timeoutId: number;
+
+    if (isDeleting) {
+      if (typingText.length > 0) {
+        timeoutId = window.setTimeout(() => {
+          setTypingText(currentPhrase.substring(0, typingText.length - 1));
+        }, 50);
+      } else {
+        timeoutId = window.setTimeout(() => {
+          setIsDeleting(false);
+          setTypingIndex((prev) => prev + 1);
+        }, 300);
+      }
+    } else {
+      if (typingText.length < currentPhrase.length) {
+        timeoutId = window.setTimeout(() => {
+          setTypingText(currentPhrase.substring(0, typingText.length + 1));
+        }, 100);
+      } else {
+        timeoutId = window.setTimeout(() => {
+          setIsDeleting(true);
+        }, 2500);
+      }
+    }
+
+    return () => window.clearTimeout(timeoutId);
+  }, [typingText, isDeleting, typingIndex, isRecording, selectedModel, selectedVersion]);
+
+  useEffect(() => {
+    const hasSeenWhatsNew = localStorage.getItem('hasSeenWhatsNew_v1');
+    if (!hasSeenWhatsNew) {
+      setIsWhatsNewOpen(true);
+      localStorage.setItem('hasSeenWhatsNew_v1', 'true');
+    }
+  }, []);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recognitionRef = useRef<any>(null);
@@ -432,11 +488,19 @@ export default function App() {
         </span>
       </div>
 
-      <div 
-        className="absolute top-6 left-6 z-20 text-white/50 hover:text-white transition-colors cursor-pointer"
-        onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-      >
-        <Settings className={`w-8 h-8 transition-transform duration-300 ${isSettingsOpen ? 'rotate-90' : ''}`} />
+      <div className="absolute top-6 left-6 z-20 flex items-center gap-5 text-white/50">
+        <div 
+          className="hover:text-white transition-colors cursor-pointer"
+          onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+        >
+          <Settings className={`w-8 h-8 transition-transform duration-300 ${isSettingsOpen ? 'rotate-90' : ''}`} />
+        </div>
+        <div 
+          className="hover:text-white transition-colors cursor-pointer"
+          onClick={() => setIsWhatsNewOpen(true)}
+        >
+          <Bell className="w-7 h-7 hover:rotate-12 transition-transform" />
+        </div>
       </div>
 
       <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex bg-[var(--overlay-bg)] backdrop-blur-md rounded-full shadow-lg p-1 gap-1">
@@ -531,6 +595,79 @@ export default function App() {
           </svg>
         </div>
       )}
+
+      <AnimatePresence>
+        {isWhatsNewOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-[var(--overlay-bg)] z-50 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setIsWhatsNewOpen(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.2 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-slate-800 border border-slate-700 p-6 rounded-3xl shadow-2xl w-full max-w-sm max-h-[85vh] overflow-y-auto"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-white font-semibold text-lg tracking-wide flex items-center gap-2">
+                  <Bell className="w-5 h-5 text-blue-400" />
+                  What's New!
+                </h3>
+                <button 
+                  onClick={() => setIsWhatsNewOpen(false)}
+                  className="text-slate-400 hover:text-white transition-colors bg-slate-700/50 hover:bg-slate-700 p-1.5 rounded-full"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="space-y-4 text-sm">
+                <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-700/50">
+                  <h4 className="text-white font-medium mb-1 flex items-center gap-2">
+                    🌲 Forest Theme
+                  </h4>
+                  <p className="text-slate-400 leading-relaxed">
+                    Immerse yourself in nature with the new "Forest" theme, featuring dark green hues and beautiful tree silhouettes.
+                  </p>
+                </div>
+
+                <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-700/50">
+                  <h4 className="text-white font-medium mb-1 flex items-center gap-2">
+                    🌸 Cherry Blossom Updates
+                  </h4>
+                  <p className="text-slate-400 leading-relaxed">
+                    The cherry blossom theme now has animated background layers for a more dynamic experience.
+                  </p>
+                </div>
+
+                <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-700/50">
+                  <h4 className="text-white font-medium mb-1 flex items-center gap-2">
+                    ⚡ Faster Animations & Fixes
+                  </h4>
+                  <p className="text-slate-400 leading-relaxed space-y-1">
+                    <span className="block">• The pill animation is now snappier for a faster start.</span>
+                    <span className="block">• Added "AI can make mistakes" disclaimer to improve expectations.</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 pt-4 border-t border-slate-700/50">
+                <button 
+                  onClick={() => setIsWhatsNewOpen(false)}
+                  className="w-full py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-medium transition-colors"
+                >
+                  Awesome, got it!
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {isSettingsOpen && (
@@ -792,17 +929,17 @@ export default function App() {
           left: '50%', 
           x: '-50%', 
           y: '-50%',
-          width: '16rem',
+          width: '6rem',
           height: '6rem'
         }}
         animate={{
           opacity: [0, 1, 1, 1, 1],
           top: ['50%', '50%', '50%', '85%', '85%'],
-          width: ['16rem', '16rem', '16rem', '6.5rem', '32rem'],
-          height: ['6rem', '6rem', '6rem', '2.5rem', '2.5rem'],
+          width: ['0rem', '6rem', '6rem', '6.5rem', '32rem'],
+          height: ['0rem', '6rem', '6rem', '2.5rem', '2.5rem'],
         }}
         transition={{
-          duration: 4.5,
+          duration: 2.0,
           times: [0, 0.15, 0.4, 0.7, 1],
           ease: "easeInOut",
         }}
@@ -887,7 +1024,7 @@ export default function App() {
 
               <input
                 type="text"
-                placeholder={isRecording ? "Listening..." : (selectedModel === 'Gemini' && selectedVersion === 'gemini-2.5-flash-image' ? "Describe the image to generate..." : `Ask ${selectedModel}...`)}
+                placeholder={isRecording ? "Listening..." : (selectedModel === 'Gemini' && selectedVersion === 'gemini-2.5-flash-image' ? "Describe the image to generate..." : typingText)}
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={(e) => {
